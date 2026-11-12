@@ -6,27 +6,32 @@ from sklearn.linear_model import ElasticNet
 from sklearn.model_selection import GroupKFold
 from sklearn.metrics import mean_absolute_error
 from sklearn.exceptions import ConvergenceWarning
-from src.constants.enums import CV_SPLITS,SPLIT_SEED
+from src.constants.enums import CV_SPLITS,SPLIT_SEED,ProgressStage
 from src.services.splitting import training_arrays
 def make_model(alpha,l1_ratio):return Pipeline([('scale',StandardScaler()),('regression',ElasticNet(alpha=alpha,l1_ratio=l1_ratio,max_iter=30000,tol=1e-6,selection='cyclic',random_state=SPLIT_SEED))])
-def fit_grouped(rows,config):
+def fit_grouped(rows,config,progress=None):
+    def report(percent,detail):
+        if progress:progress(ProgressStage.CV,percent,detail)
     split,train,x,y=training_arrays(rows,config);groups=np.array([r['building_code'] for r in train]);splits=list(GroupKFold(n_splits=CV_SPLITS).split(x,y,groups))
     candidates=[];fold_audit=[]
-    for alpha in config['alphas']:
-        for l1 in config['l1_ratios']:
-            scores=[];converged=True
-            for fold,(train_ix,val_ix) in enumerate(splits):
-                model=make_model(alpha,l1)
-                with warnings.catch_warnings(record=True) as caught:
-                    warnings.simplefilter('always',ConvergenceWarning);model.fit(x[train_ix],y[train_ix])
-                if any(issubclass(w.category,ConvergenceWarning) for w in caught):converged=False
-                scores.append(float(mean_absolute_error(y[val_ix],model.predict(x[val_ix]))))
-                if len(fold_audit)<CV_SPLITS:
-                    fold_audit.append({'fold':fold+1,'train_buildings':sorted(set(groups[train_ix])),'validation_buildings':sorted(set(groups[val_ix])),'train_row_ids':[train[i]['id'] for i in train_ix],'validation_row_ids':[train[i]['id'] for i in val_ix],'scaler_mean':dict(zip(config['features'],model.named_steps['scale'].mean_.tolist())),'scaler_scale':dict(zip(config['features'],model.named_steps['scale'].scale_.tolist()))})
-            candidates.append({'alpha':alpha,'l1_ratio':l1,'mean_mae':float(np.mean(scores)),'fold_maes':scores,'converged':converged})
+    combos=[(alpha,l1) for alpha in config['alphas'] for l1 in config['l1_ratios']]
+    total=len(combos)*CV_SPLITS;done=0
+    for alpha,l1 in combos:
+        scores=[];converged=True
+        for fold,(train_ix,val_ix) in enumerate(splits):
+            model=make_model(alpha,l1)
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter('always',ConvergenceWarning);model.fit(x[train_ix],y[train_ix])
+            if any(issubclass(w.category,ConvergenceWarning) for w in caught):converged=False
+            scores.append(float(mean_absolute_error(y[val_ix],model.predict(x[val_ix]))))
+            if len(fold_audit)<CV_SPLITS:
+                fold_audit.append({'fold':fold+1,'train_buildings':sorted(set(groups[train_ix])),'validation_buildings':sorted(set(groups[val_ix])),'train_row_ids':[train[i]['id'] for i in train_ix],'validation_row_ids':[train[i]['id'] for i in val_ix],'scaler_mean':dict(zip(config['features'],model.named_steps['scale'].mean_.tolist())),'scaler_scale':dict(zip(config['features'],model.named_steps['scale'].scale_.tolist()))})
+            done+=1;report(2+int(done/total*70),'分组交叉验证 %d/%d（α=%s, l1=%s, 折%d）'%(done,total,alpha,l1,fold+1))
+        candidates.append({'alpha':alpha,'l1_ratio':l1,'mean_mae':float(np.mean(scores)),'fold_maes':scores,'converged':converged})
     valid=[c for c in candidates if c['converged']]
     if not valid:raise ValueError('所有候选均未收敛，请检查共线性或调整预先约定的候选范围')
     best=min(valid,key=lambda c:(c['mean_mae'],c['alpha'],c['l1_ratio']))
+    if progress:progress(ProgressStage.FINAL_FIT,74,'在全部训练楼宇日上重拟合胜出配置 α=%s, l1=%s'%(best['alpha'],best['l1_ratio']))
     model=make_model(best['alpha'],best['l1_ratio'])
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter('always',ConvergenceWarning);model.fit(x,y)

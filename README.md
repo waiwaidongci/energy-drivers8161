@@ -60,9 +60,16 @@ ElasticNet在标准化X上最小化`||y−Xw||²/(2n) + α*l1_ratio*||w||₁ + �
 
 相关特征会共享解释份额，跨楼宇日的全局置换可能形成现实中少见的组合。当前没有因果识别、楼宇层面的不确定性bootstrap或干预验证；改造假设须另做现场观察。
 
-## 失败态与复算
+## 失败态、取消与复算
 
 常量训练特征、常量训练目标、楼宇不足、每楼天数不足、非有限训练/封存值、非法特征/候选、模型未收敛、数据重复均明确拒绝或保存failed原因。常量特征在首次锁定前校验，失败不会消耗方案锁。
+
+排队或运行中的研究都可以取消，也可以在失败或取消后重试，规则如下：
+
+- 每次研究维护一份尝试台账 `run_attempts`：尝试序号、状态（queued/running/completed/failed/cancelled）、阶段、0–100进度、可读说明、失败原因与起止时间；研究列表与驱动解释页实时展示每次尝试的进度与原因，运行中每2.5秒轮询刷新。
+- 取消立即把研究与所有活动尝试置为cancelled并清空待封存结果；worker在交叉验证、最终拟合、封存评估、置换重要性等检查点确认取消后停止。即使旧计算稍后结束，唯一封存入口也会拒绝写入：不公开封存能耗（`evaluation_released`保持false）、不留下任何DriverFinding或结果快照。
+- 失败重试沿用数据集最初锁定的同一份配置（config不允许变更），仅新增一次尝试；数据库唯一索引`uq_run_active_attempt`保证每个研究至多一个活动尝试，并发或重复点击重试只有一次有效计算。
+- worker重启时区分两类研究：仍queued/running的研究重新入队续跑（中断的running尝试判失败并自动排队新尝试，原因留痕）；已cancelled的研究不会被迟到的队列消息复活，旧尝试的迟到完成不能覆盖新结果。worker另有空队列巡检，消息丢失时为仍活动的研究补唤醒。
 
 保存三类核验材料：train/test楼宇与行ID、每折训练/验证楼宇与行ID、每折及最终scaler均值/尺度。训练选择SHA256只包含训练观测、拆组与配置；完整输入SHA256另包含所有源数据和封存目标。固定cyclic求解、seed97与稳定排序便于复算。数值测量与DriverFinding标量使用MySQL DOUBLE，重复分布为JSON双精度，保留一致的持久化精度。
 
@@ -70,7 +77,7 @@ ElasticNet在标准化X上最小化`||y−Xw||²/(2n) + α*l1_ratio*||w||₁ + �
 
 六页：研究首页、楼宇与样本、分组模型比较、驱动解释、改造假设、研究留痕。
 
-BuildingDataset、BuildingDay、ModelRun、DriverFinding、RetrofitHypothesis五实体各贯穿model/schema/service/controller/route/前端API/Pinia store/页面。DriverFinding由真实计算持久化，通过独立API读取；假设引用具体finding，再由负责人批准交付。
+BuildingDataset、BuildingDay、ModelRun、RunAttempt、DriverFinding、RetrofitHypothesis六实体各贯穿model/schema/service/controller/route/前端API/Pinia store/页面。RunAttempt为一次研究的每次尝试留痕（进度、阶段、失败或取消原因），ModelRun记录当前终态与尝试次数；DriverFinding由真实计算持久化，通过独立API读取；假设引用具体finding，再由负责人批准交付。
 
 共用DatasetSelect、ModelSummary、ImportancePlot、PredictionPlot、RunTable；通用PageHeading/StatusBadge/ErrorNotice/EmptyState。useTask与usePolling分别管理恢复状态和运行刷新。角色/状态枚举后端在`backend/src/constants/enums.py`（Role、RunStatus、HypothesisStatus、FEATURES），对应授权utils/auth、run_service/worker、hypothesis_service及输入schema；前端在`frontend/src/constants/enums.ts`（roles/statuses/features/shortNames），供App、StatusBadge、模型和解释页面使用。
 
@@ -81,10 +88,10 @@ BuildingDataset、BuildingDay、ModelRun、DriverFinding、RetrofitHypothesis五
 | 前端 | Vue3.5.45、TypeScript、Pinia、Vue Router、Vite6.4.6、Nginx1.27 |
 | 后端 | Python3.11、FastAPI、SQLAlchemy、PyMySQL、PyJWT |
 | 科学计算 | NumPy、scikit-learn1.5.2 Pipeline/StandardScaler/ElasticNet/GroupKFold |
-| worker | 单Python消费者；MySQL任务状态为事实源，Redis唤醒；恢复queued/running |
+| worker | 单Python消费者；MySQL任务状态为事实源，Redis唤醒；启动恢复queued/running并跳过cancelled，空队列巡检补唤醒 |
 | 数据服务 | MySQL8.0、Redis7 AOF |
 
-五服务恰好frontend/backend/worker/db/redis，每个healthcheck真实检测。backend等db/redis；worker再等backend；frontend等backend。命名卷为数据库、Redis、后端/worker共享产物；当前结果在DB，交付CSV实时生成，共享卷预留扩展。`backend/migrations/README.md`说明metadata初始化v1与自然键，没有生产schema升级工具。
+五服务恰好frontend/backend/worker/db/redis，每个healthcheck真实检测。backend等db/redis；worker再等backend；frontend等backend。命名卷为数据库、Redis、后端/worker共享产物；当前结果在DB，交付CSV实时生成，共享卷预留扩展。`backend/migrations/README.md`说明metadata初始化v1、v2（run_attempts与活动尝试唯一索引）的DDL与回填语句，没有生产schema升级工具。
 
 目录：`backend/src/{routes,controllers,services,models,schemas,middlewares,utils,constants,config}`、`backend/scripts/seed_demo.py`；`frontend/src/{api,stores,types,components/common,hooks,pages,router,utils,constants}`。
 

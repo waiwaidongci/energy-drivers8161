@@ -1,1 +1,1 @@
-import {request,post} from './client';import type {Run} from '../types/domain';export const getRuns=()=>request<Run[]>('/runs');export const createRun=(data:unknown)=>post<Run>('/runs',data);
+import {request,post} from './client';import type {Run} from '../types/domain';export const getRuns=()=>request<Run[]>('/runs');export const createRun=(data:unknown)=>post<Run>('/runs',data);export const cancelRun=(id:number)=>post<Run>(`/runs/${id}/cancel`);export const retryRun=(id:number)=>post<Run>(`/runs/${id}/retry`);

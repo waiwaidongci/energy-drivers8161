@@ -7,7 +7,8 @@ export interface Fold{fold:number;train_buildings:string[];validation_buildings:
 export interface Candidate{alpha:number;l1_ratio:number;mean_mae:number;fold_maes:number[];converged:boolean}
 export interface Point{id:number;building_code:string;day:string;actual:number;prediction:number;residual:number}
 export interface Result{split:Split;folds:Fold[];candidates:Candidate[];best:Candidate;final_scaler_mean:Record<string,number>;final_scaler_scale:Record<string,number>;final_fit_row_ids:number[];coefficient:Record<string,number>;standardized_coefficient:Record<string,number>;intercept:number;selection_fingerprint:string;metrics:{mae:number;rmse:number;r2:number|null;n:number;buildings:string[]};points:Point[];input_fingerprint:string;config:Config}
-export interface Run{id:number;name:string;dataset_id:number;config:Config;status:string;error:string;created_at:string;result:Partial<Result>}
+export interface Attempt{id:number;attempt_no:number;status:string;stage:string;progress:number;detail:string;error:string;started_at:string|null;finished_at:string|null;created_at:string|null}
+export interface Run{id:number;name:string;dataset_id:number;config:Config;status:string;error:string;result:Partial<Result>;attempt_count:number;updated_at:string|null;created_at:string;attempts:Attempt[]}
 export interface Finding{id:number;run_id:number;feature:string;coefficient:number;standardized_coefficient:number;importance_mean:number;importance_low:number;importance_high:number;repeats:number[]}
 export interface Hypothesis{id:number;title:string;finding_id:number;action:string;verification:string;status:string;approved_by:string;created_at:string}
 export interface Audit{id:number;actor:string;action:string;status_code:number;created_at:string}

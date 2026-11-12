@@ -4,4 +4,4 @@ export async function request<T>(path:string,options:RequestInit={}):Promise<T>{
  if(!response.ok){const e=await response.json().catch(()=>({detail:'网络请求失败'}));if(response.status===401&&path!='/auth/login'){localStorage.removeItem('energy-token');location.hash='/login';}throw new Error(typeof e.detail==='string'?e.detail:JSON.stringify(e.detail));}
  return response.json();
 }
-export const post=<T>(path:string,data:unknown)=>request<T>(path,{method:'POST',body:JSON.stringify(data)});
+export const post=<T>(path:string,data?:unknown)=>request<T>(path,{method:'POST',...(data===undefined?{}:{body:JSON.stringify(data)})});
